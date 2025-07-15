@@ -8,37 +8,11 @@ When run with ``--compare fileA.csv fileB.csv`` the script writes two reports:
   if one temperature's test fully covers another.
 """
 
-import pandas as pd
+import argparse
 from pathlib import Path
 from typing import List
 
-def _unique_test_names(groups: List[str], items: List[str]) -> List[str]:
-    """Return unique column names for group/item pairs.
-
-    Some poorly formatted CSVs may repeat the same test group and item in
-    multiple columns. Pandas will then try to create multi-dimensional columns
-    when reading the data which breaks later processing.  This helper assigns a
-    numeric suffix when duplicates appear so every column name is distinct.
-    """
-
-    counts: dict[str, int] = {}
-    names: List[str] = []
-    for g, it in zip(groups, items):
-        base = f"{g}-{it}"
-        counts[base] = counts.get(base, 0) + 1
-        suffix = f"_{counts[base]}" if counts[base] > 1 else ""
-        names.append(f"{base}{suffix}")
-    return names
-
-
-def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
-    """Return list of test item names with group prefix and unique suffix."""
-    df_hdr = pd.read_csv(file_path, header=None, skiprows=metadata_rows, nrows=2)
-    test_groups = df_hdr.iloc[0, 8:].astype(str).tolist()
-    test_items = df_hdr.iloc[1, 8:].astype(str).tolist()
-    return _unique_test_names(test_groups, test_items)
-
-
+import pandas as pd
 
 def _unique_test_names(groups: List[str], items: List[str]) -> List[str]:
     """Return unique column names for group/item pairs.
@@ -65,6 +39,9 @@ def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
     test_groups = df_hdr.iloc[0, 8:].astype(str).tolist()
     test_items = df_hdr.iloc[1, 8:].astype(str).tolist()
     return _unique_test_names(test_groups, test_items)
+
+
+
 
 
 def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
@@ -234,23 +211,34 @@ def save_failures(path: str) -> None:
     print(f"Saved failures to {out_path}")
 
 
-def main(args: List[str]):
-    if args and args[0] == "--compare" and len(args) == 3:
-        compare_coverage(args[1], args[2])
-        return
-    for path in args:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Extract failing chips and optionally compare coverage",
+    )
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        metavar=("FILE_A", "FILE_B"),
+        help="Compare failing chips between two CSV files",
+    )
+    parser.add_argument(
+        "csv",
+        nargs="*",
+        help="CSV files to convert into *_failures.csv reports",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv)
+
+    if args.compare:
+        compare_coverage(*args.compare)
+
+    for path in args.csv:
         save_failures(path)
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print(
-            "Usage: python extract_failing_chips.py [--compare fileA.csv fileB.csv] <csv>..."
-        )
-        print(
-            "When using --compare, coverage.csv and summary.csv will be generated in the current directory."
-        )
-        sys.exit(1)
-    main(sys.argv[1:])
+    main()
