@@ -3,6 +3,14 @@ from pathlib import Path
 from typing import List
 
 
+def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
+    """Return list of test item names including group prefix."""
+    df_hdr = pd.read_csv(file_path, header=None, skiprows=metadata_rows, nrows=2)
+    test_groups = df_hdr.iloc[0, 8:].astype(str).tolist()
+    test_items = df_hdr.iloc[1, 8:].astype(str).tolist()
+    return [f"{g}-{i}" for g, i in zip(test_groups, test_items)]
+
+
 def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     """Return DataFrame of failing chip coordinates for a wafer CSV."""
     df_all = pd.read_csv(file_path, header=None, skiprows=metadata_rows)
@@ -37,26 +45,97 @@ def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
             test_item=f"{test_groups[idx]}-{item}",
             unit=units[idx],
             value=failing[item],
+            limit_high=upper,
+            limit_low=lower,
         )
-        failures.append(failing[["XAdr", "YAdr", "test_item", "unit", "value"]])
+        failures.append(
+            failing[["XAdr", "YAdr", "test_item", "unit", "value", "limit_high", "limit_low"]]
+        )
 
     if failures:
         return pd.concat(failures, ignore_index=True)
-    return pd.DataFrame(columns=["XAdr", "YAdr", "test_item", "unit", "value"])
+    return pd.DataFrame(
+        columns=["XAdr", "YAdr", "test_item", "unit", "value", "limit_high", "limit_low"]
+    )
 
 
 def compare_coverage(file_a: str, file_b: str) -> None:
     """Compare failing chips between two CSV files and report coverage."""
     df_a = parse_wafer_csv(file_a)
     df_b = parse_wafer_csv(file_b)
-    if df_a.empty or df_b.empty:
-        print("One of the files has no failures to compare")
+
+    tests_a = set(get_test_items(file_a))
+    tests_b = set(get_test_items(file_b))
+
+    if df_a.empty and df_b.empty:
+        print("Both files have no failures to compare")
         return
-    overlap = pd.merge(df_a, df_b, on=["XAdr", "YAdr", "test_item"], suffixes=("_a", "_b"))
-    coverage = len(overlap) / len(df_a) * 100
-    overlap.to_csv("coverage.csv", index=False)
+
+    merged = pd.merge(
+        df_a,
+        df_b,
+        on=["XAdr", "YAdr", "test_item"],
+        how="outer",
+        suffixes=("_a", "_b"),
+    )
+
+    def status(row: pd.Series) -> str:
+        if not pd.isna(row.get("value_a")) and not pd.isna(row.get("value_b")):
+            return "both_fail"
+        if not pd.isna(row.get("value_a")):
+            return "fail_in_a_only"
+        return "fail_in_b_only"
+
+    merged["status"] = merged.apply(status, axis=1)
+
+    coverage = (
+        len(merged[merged["status"] == "both_fail"]) / len(df_a) * 100
+        if len(df_a)
+        else 0.0
+    )
+
+    merged.to_csv("coverage.csv", index=False)
     print(f"Coverage of {file_a} on {file_b}: {coverage:.2f}%")
-    print("Overlap saved to coverage.csv")
+    print("Detailed coverage written to coverage.csv")
+
+    summary = summarize_by_test_item(merged, tests_a, tests_b)
+    summary.to_csv("summary.csv", index=False)
+    print("Summary written to summary.csv")
+
+
+def summarize_by_test_item(
+    df: pd.DataFrame, tests_a: set[str], tests_b: set[str]
+) -> pd.DataFrame:
+    """Return summary statistics grouped by test_item."""
+    grouped = df.groupby("test_item")
+    summary = grouped.agg(
+        fails_a=("value_a", lambda s: s.notna().sum()),
+        fails_b=("value_b", lambda s: s.notna().sum()),
+        both_fail=("status", lambda s: (s == "both_fail").sum()),
+    ).reset_index()
+
+    summary["coverage_a_in_b"] = (
+        summary["both_fail"]
+        / summary["fails_a"].replace(0, pd.NA)
+        * 100
+    ).fillna(0).round(2)
+    summary["coverage_b_in_a"] = (
+        summary["both_fail"]
+        / summary["fails_b"].replace(0, pd.NA)
+        * 100
+    ).fillna(0).round(2)
+
+    summary["a_fully_covered"] = (
+        (summary["fails_a"] > 0) & (summary["coverage_a_in_b"] == 100)
+    )
+    summary["b_fully_covered"] = (
+        (summary["fails_b"] > 0) & (summary["coverage_b_in_a"] == 100)
+    )
+
+    summary["present_in_a"] = summary["test_item"].isin(tests_a)
+    summary["present_in_b"] = summary["test_item"].isin(tests_b)
+
+    return summary
 
 
 def save_failures(path: str) -> None:
