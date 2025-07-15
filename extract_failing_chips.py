@@ -14,18 +14,19 @@ def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
 def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     """Return DataFrame of failing chip coordinates for a wafer CSV."""
     df_all = pd.read_csv(file_path, header=None, skiprows=metadata_rows)
+    df_all = df_all.dropna(how="all").reset_index(drop=True)
     if len(df_all) < 6:
         raise ValueError("CSV format unexpected; not enough rows after metadata")
 
     test_groups = df_all.iloc[0, 8:].astype(str).tolist()
     test_items = df_all.iloc[1, 8:].astype(str).tolist()
-    upper_limits = pd.to_numeric(df_all.iloc[3, 8:], errors="coerce")
-    lower_limits = pd.to_numeric(df_all.iloc[4, 8:], errors="coerce")
+    upper_limits = pd.to_numeric(df_all.iloc[2, 8:], errors="coerce")
+    lower_limits = pd.to_numeric(df_all.iloc[3, 8:], errors="coerce")
 
-    headers = df_all.iloc[5, :8].tolist() + test_items
-    units = df_all.iloc[5, 8:].astype(str).tolist()
+    headers = df_all.iloc[4, :8].tolist() + test_items
+    units = df_all.iloc[4, 8:].astype(str).tolist()
 
-    data_rows = df_all.iloc[6:].copy()
+    data_rows = df_all.iloc[5:].copy()
     data_rows = data_rows.iloc[:, :len(headers)]
     data_rows.columns = headers
     data_rows = data_rows.dropna(how="all")
