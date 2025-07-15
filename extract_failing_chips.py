@@ -37,26 +37,52 @@ def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
             test_item=f"{test_groups[idx]}-{item}",
             unit=units[idx],
             value=failing[item],
+            limit_high=upper,
+            limit_low=lower,
         )
-        failures.append(failing[["XAdr", "YAdr", "test_item", "unit", "value"]])
+        failures.append(
+            failing[["XAdr", "YAdr", "test_item", "unit", "value", "limit_high", "limit_low"]]
+        )
 
     if failures:
         return pd.concat(failures, ignore_index=True)
-    return pd.DataFrame(columns=["XAdr", "YAdr", "test_item", "unit", "value"])
+    return pd.DataFrame(
+        columns=["XAdr", "YAdr", "test_item", "unit", "value", "limit_high", "limit_low"]
+    )
 
 
 def compare_coverage(file_a: str, file_b: str) -> None:
     """Compare failing chips between two CSV files and report coverage."""
     df_a = parse_wafer_csv(file_a)
     df_b = parse_wafer_csv(file_b)
-    if df_a.empty or df_b.empty:
-        print("One of the files has no failures to compare")
+
+    if df_a.empty and df_b.empty:
+        print("Both files have no failures to compare")
         return
-    overlap = pd.merge(df_a, df_b, on=["XAdr", "YAdr", "test_item"], suffixes=("_a", "_b"))
-    coverage = len(overlap) / len(df_a) * 100
-    overlap.to_csv("coverage.csv", index=False)
+
+    merged = pd.merge(
+        df_a,
+        df_b,
+        on=["XAdr", "YAdr", "test_item"],
+        how="outer",
+        suffixes=("_a", "_b"),
+    )
+
+    def status(row: pd.Series) -> str:
+        if not pd.isna(row.get("value_a")) and not pd.isna(row.get("value_b")):
+            return "both_fail"
+        if not pd.isna(row.get("value_a")):
+            return "fail_in_a_only"
+        return "fail_in_b_only"
+
+    merged["status"] = merged.apply(status, axis=1)
+    coverage = (
+        len(merged[merged["status"] == "both_fail"]) / len(df_a) * 100 if len(df_a) else 0.0
+    )
+
+    merged.to_csv("coverage.csv", index=False)
     print(f"Coverage of {file_a} on {file_b}: {coverage:.2f}%")
-    print("Overlap saved to coverage.csv")
+    print("Detailed coverage written to coverage.csv")
 
 
 def save_failures(path: str) -> None:
