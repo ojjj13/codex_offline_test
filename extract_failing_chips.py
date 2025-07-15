@@ -2,18 +2,38 @@ import pandas as pd
 from pathlib import Path
 from typing import List
 
+def _unique_test_names(groups: List[str], items: List[str]) -> List[str]:
+    """Return unique column names for group/item pairs.
+
+    Some poorly formatted CSVs may repeat the same test group and item in
+    multiple columns. Pandas will then try to create multi-dimensional columns
+    when reading the data which breaks later processing.  This helper assigns a
+    numeric suffix when duplicates appear so every column name is distinct.
+    """
+
+    counts: dict[str, int] = {}
+    names: List[str] = []
+    for g, it in zip(groups, items):
+        base = f"{g}-{it}"
+        counts[base] = counts.get(base, 0) + 1
+        suffix = f"_{counts[base]}" if counts[base] > 1 else ""
+        names.append(f"{base}{suffix}")
+    return names
+
 
 def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
-    """Return list of test item names including group prefix."""
+    """Return list of test item names with group prefix and unique suffix."""
     df_hdr = pd.read_csv(file_path, header=None, skiprows=metadata_rows, nrows=2)
     test_groups = df_hdr.iloc[0, 8:].astype(str).tolist()
     test_items = df_hdr.iloc[1, 8:].astype(str).tolist()
-    return [f"{g}-{i}" for g, i in zip(test_groups, test_items)]
+    return _unique_test_names(test_groups, test_items)
+
 
 
 def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     """Return DataFrame of failing chip coordinates for a wafer CSV."""
     df_all = pd.read_csv(file_path, header=None, skiprows=metadata_rows)
+    df_all = df_all.dropna(axis=1, how="all")
     df_all = df_all.dropna(how="all").reset_index(drop=True)
     if len(df_all) < 6:
         raise ValueError("CSV format unexpected; not enough rows after metadata")
@@ -24,8 +44,8 @@ def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     lower_limits = pd.to_numeric(df_all.iloc[3, 8:], errors="coerce")
 
     # Build unique column names to avoid collision when test_items repeat under
-    # different groups.
-    test_items = [f"{g}-{i}" for g, i in zip(test_groups, test_items_raw)]
+    # different groups or appear multiple times.
+    test_items = _unique_test_names(test_groups, test_items_raw)
 
     headers = df_all.iloc[4, :8].tolist() + test_items
     units = df_all.iloc[4, 8:].astype(str).tolist()
