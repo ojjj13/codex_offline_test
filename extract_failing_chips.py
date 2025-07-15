@@ -14,18 +14,23 @@ def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
 def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     """Return DataFrame of failing chip coordinates for a wafer CSV."""
     df_all = pd.read_csv(file_path, header=None, skiprows=metadata_rows)
+    df_all = df_all.dropna(how="all").reset_index(drop=True)
     if len(df_all) < 6:
         raise ValueError("CSV format unexpected; not enough rows after metadata")
 
     test_groups = df_all.iloc[0, 8:].astype(str).tolist()
-    test_items = df_all.iloc[1, 8:].astype(str).tolist()
-    upper_limits = pd.to_numeric(df_all.iloc[3, 8:], errors="coerce")
-    lower_limits = pd.to_numeric(df_all.iloc[4, 8:], errors="coerce")
+    test_items_raw = df_all.iloc[1, 8:].astype(str).tolist()
+    upper_limits = pd.to_numeric(df_all.iloc[2, 8:], errors="coerce")
+    lower_limits = pd.to_numeric(df_all.iloc[3, 8:], errors="coerce")
 
-    headers = df_all.iloc[5, :8].tolist() + test_items
-    units = df_all.iloc[5, 8:].astype(str).tolist()
+    # Build unique column names to avoid collision when test_items repeat under
+    # different groups.
+    test_items = [f"{g}-{i}" for g, i in zip(test_groups, test_items_raw)]
 
-    data_rows = df_all.iloc[6:].copy()
+    headers = df_all.iloc[4, :8].tolist() + test_items
+    units = df_all.iloc[4, 8:].astype(str).tolist()
+
+    data_rows = df_all.iloc[5:].copy()
     data_rows = data_rows.iloc[:, :len(headers)]
     data_rows.columns = headers
     data_rows = data_rows.dropna(how="all")
@@ -42,7 +47,7 @@ def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
         if failing.empty:
             continue
         failing = failing.assign(
-            test_item=f"{test_groups[idx]}-{item}",
+            test_item=item,
             unit=units[idx],
             value=failing[item],
             limit_high=upper,
