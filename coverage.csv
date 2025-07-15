@@ -1,0 +1,6 @@
+XAdr,YAdr,test_item,unit_a,value_a,unit_b,value_b
+8,5,OpenShort-D0,V,-1.2,V,-1.1
+18,12,OpenShort-D0,V,-0.05,V,-0.05
+8,5,OpenShort-D1,V,-0.05,V,-0.05
+12,10,OpenShort-D2,V,-1.2,V,-1.2
+18,12,Leakage-I2,A,0.7,A,0.6
