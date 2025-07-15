@@ -14,6 +14,7 @@ def get_test_items(file_path: str, metadata_rows: int = 29) -> List[str]:
 def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     """Return DataFrame of failing chip coordinates for a wafer CSV."""
     df_all = pd.read_csv(file_path, header=None, skiprows=metadata_rows)
+    df_all = df_all.dropna(axis=1, how="all")
     df_all = df_all.dropna(how="all").reset_index(drop=True)
     if len(df_all) < 6:
         raise ValueError("CSV format unexpected; not enough rows after metadata")
