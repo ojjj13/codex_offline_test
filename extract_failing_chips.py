@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 from typing import List
 
 
@@ -44,24 +45,44 @@ def parse_wafer_csv(file_path: str, metadata_rows: int = 29) -> pd.DataFrame:
     return pd.DataFrame(columns=["XAdr", "YAdr", "test_item", "unit", "value"])
 
 
-def main(files: List[str]):
-    all_frames = []
-    for path in files:
-        df = parse_wafer_csv(path)
-        if not df.empty:
-            df["file"] = path
-            all_frames.append(df)
-    if all_frames:
-        result = pd.concat(all_frames, ignore_index=True)
-        print(result.to_csv(index=False))
-    else:
-        print("No failures found")
+def compare_coverage(file_a: str, file_b: str) -> None:
+    """Compare failing chips between two CSV files and report coverage."""
+    df_a = parse_wafer_csv(file_a)
+    df_b = parse_wafer_csv(file_b)
+    if df_a.empty or df_b.empty:
+        print("One of the files has no failures to compare")
+        return
+    overlap = pd.merge(df_a, df_b, on=["XAdr", "YAdr", "test_item"], suffixes=("_a", "_b"))
+    coverage = len(overlap) / len(df_a) * 100
+    overlap.to_csv("coverage.csv", index=False)
+    print(f"Coverage of {file_a} on {file_b}: {coverage:.2f}%")
+    print("Overlap saved to coverage.csv")
+
+
+def save_failures(path: str) -> None:
+    df = parse_wafer_csv(path)
+    if df.empty:
+        print(f"No failures found in {path}")
+        return
+    out_path = f"{Path(path).stem}_failures.csv"
+    df.to_csv(out_path, index=False)
+    print(f"Saved failures to {out_path}")
+
+
+def main(args: List[str]):
+    if args and args[0] == "--compare" and len(args) == 3:
+        compare_coverage(args[1], args[2])
+        return
+    for path in args:
+        save_failures(path)
 
 
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:
-        print("Usage: python extract_failing_chips.py <file1.csv> [file2.csv ...]")
+        print(
+            "Usage: python extract_failing_chips.py [--compare fileA.csv fileB.csv] <csv>..."
+        )
         sys.exit(1)
     main(sys.argv[1:])
